@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grabadora y transcriptor de reuniones</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .recording-indicator::before {
+            content: '';
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 8px;
+            border-radius: 50%;
+            background-color: #ef4444; /* red-500 */
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .paused-indicator::before {
+             content: '';
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 8px;
+            border-radius: 50%;
+            background-color: #f59e0b; /* amber-500 */
+        }
+        .loader {
+            border: 4px solid #e2e8f0; /* slate-200 */
+            border-top: 4px solid #0ea5e9; /* sky-500 */
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        textarea:focus {
+            outline: 2px solid #3b82f6;
+            outline-offset: 2px;
+            border-color: #3b82f6;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-3xl mx-auto p-4 md:p-8 bg-white rounded-2xl shadow-lg border border-slate-200 relative">
+        <header class="flex flex-col md:flex-row items-center text-center md:text-left gap-6 mb-8">
+             <img src="https://files.catbox.moe/zovctj.png" alt="Logo del Colegio" class="h-28 w-28 flex-shrink-0">
+             <div>
+                <h1 class="text-3xl md:text-4xl font-bold text-slate-800">Informes de reuniones con IA</h1>
+                <p class="text-slate-600 mt-2">Graba, transcribe y genera informes detallados de tus reuniones automáticamente.</p>
+             </div>
+        </header>
+
+        <main>
+            <!-- Recording Controls -->
+            <div class="bg-slate-50 p-6 rounded-xl flex flex-col items-center mb-8 border border-slate-200">
+                <div id="status-container" class="mb-4 text-lg font-medium text-slate-700 h-8 flex items-center">
+                    <span id="status-text">Presiona 'Grabar' para comenzar</span>
+                </div>
+                <div id="timer" class="text-5xl font-mono tracking-widest mb-6 text-slate-700">00:00:00</div>
+                <div class="flex flex-wrap justify-center gap-4 w-full">
+                    <button id="startButton" class="flex-1 max-w-xs bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 shadow-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4"></circle></svg>
+                        <span>Grabar</span>
+                    </button>
+                    <button id="pauseResumeButton" class="flex-1 max-w-xs bg-slate-500 hover:bg-slate-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 shadow-sm" disabled>
+                        <svg id="pause-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                        <svg id="resume-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                        <span id="pauseResumeText">Pausar</span>
+                    </button>
+                    <button id="stopButton" class="flex-1 max-w-xs bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 shadow-sm" disabled>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+                        <span>Detener</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Upload Section -->
+            <div class="mb-8 text-center">
+                 <p class="text-slate-600 mb-4">O si prefieres, sube un archivo de audio existente.</p>
+                 <input type="file" id="audioUpload" class="hidden" accept="audio/*">
+                 <button id="uploadButton" class="bg-slate-700 hover:bg-slate-800 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 flex items-center justify-center gap-2 shadow-sm mx-auto">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    <span>Cargar Audio</span>
+                 </button>
+            </div>
+
+
+            <!-- Recordings List -->
+            <div id="recordings-section" class="hidden">
+                <h2 class="text-2xl font-semibold mb-4 border-b-2 border-slate-300 pb-2 text-slate-700">Grabaciones de reuniones</h2>
+                <div id="recordingsList" class="space-y-6">
+                    <!-- Audio items will be appended here -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // DOM Elements
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const pauseResumeButton = document.getElementById('pauseResumeButton');
+        const pauseResumeText = document.getElementById('pauseResumeText');
+        const pauseIcon = document.getElementById('pause-icon');
+        const resumeIcon = document.getElementById('resume-icon');
+        const statusText = document.getElementById('status-text');
+        const timerElement = document.getElementById('timer');
+        const recordingsList = document.getElementById('recordingsList');
+        const recordingsSection = document.getElementById('recordings-section');
+        const uploadButton = document.getElementById('uploadButton');
+        const audioUpload = document.getElementById('audioUpload');
+
+
+        // MediaRecorder variables
+        let mediaRecorder;
+        let audioChunks = [];
+        let stream;
+        
+        // State variables
+        let recordingState = 'inactive';
+        let timerInterval;
+        let seconds = 0, minutes = 0, hours = 0;
+
+        // --- Event Listeners ---
+        startButton.addEventListener('click', startRecording);
+        stopButton.addEventListener('click', stopRecording);
+        pauseResumeButton.addEventListener('click', togglePauseResume);
+        uploadButton.addEventListener('click', () => audioUpload.click());
+        audioUpload.addEventListener('change', handleFileUpload);
+
+
+        // --- Core Recording Functions ---
+        async function startRecording() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    createRecordingElement(audioUrl, audioBlob);
+                    audioChunks = [];
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                mediaRecorder.start();
+                updateUI('recording');
+                startTimer();
+            } catch (error) {
+                console.error("Error accessing microphone:", error);
+                statusText.textContent = "Error al acceder al micrófono.";
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                updateUI('inactive');
+                stopTimer();
+                resetTimer();
+            }
+        }
+
+        function togglePauseResume() {
+            if (!mediaRecorder) return;
+            if (recordingState === 'recording') {
+                mediaRecorder.pause();
+                updateUI('paused');
+                stopTimer();
+            } else if (recordingState === 'paused') {
+                mediaRecorder.resume();
+                updateUI('recording');
+                startTimer();
+            }
+        }
+        
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (file && file.type.startsWith('audio/')) {
+                const audioUrl = URL.createObjectURL(file);
+                createRecordingElement(audioUrl, file);
+            }
+            // Reset file input to allow uploading the same file again
+            event.target.value = null;
+        }
+
+        // --- UI & Timer Functions ---
+        function updateUI(state) {
+            recordingState = state;
+            const statusContainer = document.getElementById('status-container');
+            statusContainer.classList.remove('recording-indicator', 'paused-indicator');
+            if (state === 'recording') {
+                statusText.textContent = 'Grabando...';
+                statusContainer.classList.add('recording-indicator');
+                startButton.disabled = true;
+                stopButton.disabled = false;
+                pauseResumeButton.disabled = false;
+                pauseResumeText.textContent = 'Pausar';
+                pauseIcon.classList.remove('hidden');
+                resumeIcon.classList.add('hidden');
+            } else if (state === 'paused') {
+                statusText.textContent = 'Pausado';
+                statusContainer.classList.add('paused-indicator');
+                startButton.disabled = true;
+                stopButton.disabled = false;
+                pauseResumeButton.disabled = false;
+                pauseResumeText.textContent = 'Reanudar';
+                pauseIcon.classList.add('hidden');
+                resumeIcon.classList.remove('hidden');
+            } else {
+                statusText.textContent = "Presiona 'Grabar' para comenzar";
+                startButton.disabled = false;
+                stopButton.disabled = true;
+                pauseResumeButton.disabled = true;
+                pauseResumeText.textContent = 'Pausar';
+                pauseIcon.classList.remove('hidden');
+                resumeIcon.classList.add('hidden');
+            }
+        }
+
+        function startTimer() {
+            timerInterval = setInterval(() => {
+                seconds++;
+                if (seconds >= 60) { seconds = 0; minutes++; }
+                if (minutes >= 60) { minutes = 0; hours++; }
+                timerElement.textContent = formatTime();
+            }, 1000);
+        }
+        function stopTimer() { clearInterval(timerInterval); }
+        function resetTimer() {
+            seconds = 0; minutes = 0; hours = 0;
+            timerElement.textContent = formatTime();
+        }
+        function formatTime() {
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        // --- Recording Element & AI Functions ---
+        function createRecordingElement(audioUrl, audioBlob) {
+            recordingsSection.classList.remove('hidden');
+            const recordingItem = document.createElement('div');
+            recordingItem.className = 'bg-white p-4 rounded-lg flex flex-col gap-4 border border-slate-200 shadow-sm';
+            
+            // Player
+            const playerWrapper = document.createElement('div');
+            playerWrapper.className = 'flex items-center justify-between gap-4';
+            const audio = new Audio(audioUrl);
+            audio.controls = true;
+            audio.className = 'w-full';
+            const downloadLink = document.createElement('a');
+            downloadLink.href = audioUrl;
+            downloadLink.download = audioBlob.name || `reunion-${new Date().toISOString()}.webm`;
+            downloadLink.className = 'flex-shrink-0 bg-slate-200 hover:bg-slate-300 text-slate-700 p-3 rounded-full transition-all duration-300';
+            downloadLink.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`;
+            playerWrapper.appendChild(audio);
+            playerWrapper.appendChild(downloadLink);
+
+            // Transcription Section
+            const transcriptionWrapper = document.createElement('div');
+            transcriptionWrapper.className = 'border-t border-slate-200 pt-4';
+            const transcribeButton = document.createElement('button');
+            transcribeButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg> <span>Transcribir con IA</span>`;
+            transcribeButton.className = 'flex items-center justify-center gap-2 w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg transition-all duration-300 shadow-sm';
+            const transcriptionLoader = document.createElement('div');
+            transcriptionLoader.className = 'loader mx-auto my-4 hidden';
+            const transcriptionText = document.createElement('p');
+            transcriptionText.className = 'text-slate-700 bg-slate-100 p-3 rounded-md whitespace-pre-wrap hidden min-h-[100px] border border-slate-200';
+            const copyTranscriptionButton = document.createElement('button');
+            copyTranscriptionButton.innerHTML = `<span>Copiar Transcripción</span>`;
+            copyTranscriptionButton.className = 'flex items-center gap-2 mt-2 bg-slate-500 hover:bg-slate-600 text-white text-sm font-bold py-1 px-3 rounded-md transition-all duration-300 hidden';
+
+            // Report Section
+            const reportWrapper = document.createElement('div');
+            reportWrapper.className = 'border-t border-slate-200 pt-4 mt-4 hidden';
+            const generateReportButton = document.createElement('button');
+            generateReportButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg> <span>Generar Informe con IA</span>`;
+            generateReportButton.className = 'flex items-center justify-center gap-2 w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg transition-all duration-300 shadow-sm';
+            const reportLoader = document.createElement('div');
+            reportLoader.className = 'loader mx-auto my-4 hidden';
+            
+            // Editable Report Text Area
+            const reportText = document.createElement('textarea');
+            reportText.className = 'w-full text-slate-700 bg-slate-100 p-3 rounded-md whitespace-pre-wrap hidden min-h-[250px] border border-slate-200 transition-all';
+            
+            // Participants Input Area
+            const participantsWrapper = document.createElement('div');
+            participantsWrapper.className = 'mt-4 hidden';
+            const participantsLabel = document.createElement('label');
+            participantsLabel.textContent = 'Participantes para la firma (uno por línea):';
+            participantsLabel.className = 'block text-sm font-medium text-slate-700 mb-2';
+            const participantsText = document.createElement('textarea');
+            participantsText.className = 'w-full text-slate-700 bg-slate-100 p-3 rounded-md border border-slate-200 transition-all h-24';
+            participantsText.placeholder = 'Ej: Juan Pérez\n     María González';
+            participantsWrapper.append(participantsLabel, participantsText);
+
+            const reportActionsWrapper = document.createElement('div');
+            reportActionsWrapper.className = 'flex items-center gap-2 mt-4';
+            const copyReportButton = document.createElement('button');
+            copyReportButton.innerHTML = `<span>Copiar Informe</span>`;
+            copyReportButton.className = 'flex-1 bg-slate-500 hover:bg-slate-600 text-white text-sm font-bold py-1 px-3 rounded-md transition-all duration-300 hidden';
+            const downloadPdfButton = document.createElement('button');
+            downloadPdfButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg><span>Descargar PDF</span>`;
+            downloadPdfButton.className = 'flex items-center justify-center gap-2 flex-1 bg-slate-700 hover:bg-slate-800 text-white text-sm font-bold py-1 px-3 rounded-md transition-all duration-300 hidden';
+
+            // Event Listeners
+            transcribeButton.onclick = () => transcribeAudio(audioBlob, transcribeButton, transcriptionLoader, transcriptionText, copyTranscriptionButton, reportWrapper);
+            copyTranscriptionButton.onclick = () => copyToClipboard(transcriptionText.textContent, copyTranscriptionButton, 'Copiar Transcripción');
+            generateReportButton.onclick = () => generateReport(transcriptionText.textContent, generateReportButton, reportLoader, reportText, participantsWrapper, copyReportButton, downloadPdfButton);
+            copyReportButton.onclick = () => copyToClipboard(reportText.value, copyReportButton, 'Copiar Informe');
+            downloadPdfButton.onclick = async () => {
+                downloadPdfButton.disabled = true;
+                downloadPdfButton.textContent = 'Generando...';
+                try {
+                    await downloadReportAsPDF(reportText.value, participantsText.value, `informe-reunion-${new Date().toISOString()}.pdf`);
+                } catch(e) {
+                    console.error("Failed to generate PDF", e);
+                    alert("Hubo un error al generar el PDF.");
+                } finally {
+                    downloadPdfButton.disabled = false;
+                    downloadPdfButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg><span>Descargar PDF</span>`;
+                }
+            };
+
+            // Appending elements
+            transcriptionWrapper.append(transcribeButton, transcriptionLoader, transcriptionText, copyTranscriptionButton);
+            reportActionsWrapper.append(copyReportButton, downloadPdfButton);
+            reportWrapper.append(generateReportButton, reportLoader, reportText, participantsWrapper, reportActionsWrapper);
+            recordingItem.append(playerWrapper, transcriptionWrapper, reportWrapper);
+            recordingsList.appendChild(recordingItem);
+        }
+
+        async function transcribeAudio(audioBlob, button, loader, textElement, copyBtn, reportWrapper) {
+            button.classList.add('hidden');
+            loader.classList.remove('hidden');
+            textElement.classList.add('hidden');
+            copyBtn.classList.add('hidden');
+            reportWrapper.classList.add('hidden');
+            textElement.textContent = '';
+
+            try {
+                const mimeType = audioBlob.type.split(';')[0];
+                const audioData = await blobToBase64(audioBlob);
+                const result = await callGeminiAPI([
+                    { text: "El siguiente audio está en español. Por favor, transcríbelo a texto en español. Si es posible, identifica a los diferentes hablantes y etiqueta sus diálogos (por ejemplo, 'Hablante 1:', 'Hablante 2:'). Si no puedes distinguir a los hablantes con claridad, simplemente transcribe el texto sin etiquetas de hablante." },
+                    { inline_data: { mime_type: mimeType, data: audioData } }
+                ]);
+                const transcription = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (transcription) {
+                    textElement.textContent = transcription;
+                    reportWrapper.classList.remove('hidden');
+                } else {
+                    let errorMessage = "No se pudo obtener una transcripción.";
+                    if(result.promptFeedback && result.promptFeedback.blockReason){
+                        errorMessage += ` Razón: ${result.promptFeedback.blockReason}`;
+                    }
+                    textElement.textContent = errorMessage;
+                    console.error("Respuesta inesperada o bloqueada de la API:", result);
+                }
+            } catch (error) {
+                console.error("Error durante la transcripción:", error);
+                textElement.textContent = `Error: ${error.message}`;
+            } finally {
+                loader.classList.add('hidden');
+                textElement.classList.remove('hidden');
+                if (textElement.textContent && !textElement.textContent.toLowerCase().startsWith("error") && !textElement.textContent.startsWith("No se pudo")) {
+                    copyBtn.classList.remove('hidden');
+                }
+            }
+        }
+        
+        async function generateReport(transcription, button, loader, textElement, participantsWrapper, copyBtn, downloadPdfBtn) {
+            button.classList.add('hidden');
+            loader.classList.remove('hidden');
+            textElement.classList.add('hidden');
+            participantsWrapper.classList.add('hidden');
+            copyBtn.classList.add('hidden');
+            downloadPdfBtn.classList.add('hidden');
+            textElement.value = '';
+            
+            const prompt = `Eres un asistente experto en análisis y redacción de minutas de reuniones. Tu tarea es analizar la siguiente transcripción y generar un informe profesional, claro y bien estructurado, pensado para ser compartido con un equipo de trabajo.
+
+El informe debe contener únicamente las secciones que correspondan según la información disponible en la transcripción:
+
+Resumen general: Una sinopsis breve, objetiva y concisa de la conversación.
+
+Puntos clave: Los temas más relevantes tratados. Presenta esta sección en viñetas claras.
+
+Acuerdos tomados: Decisiones concretas alcanzadas durante la reunión.
+
+Acciones a seguir: Tareas, próximos pasos y compromisos definidos.
+
+Responsables y fechas: (solo si se mencionan) especificar quién se hará cargo de cada acción y para cuándo.
+
+Reglas de redacción:
+
+Si una sección no aplica porque no fue mencionada en la conversación, omite esa sección en el informe final.
+
+Usa un lenguaje formal y profesional, sin adornos innecesarios.
+
+Presenta las ideas de forma clara y ejecutiva, evitando redundancias.
+
+Formatea los títulos de las secciones en negrita (con dos asteriscos).
+
+No incluyas sección de participantes (se gestiona aparte).
+
+Aquí está la transcripción:
+---
+${transcription}
+---`;
+
+            try {
+                const result = await callGeminiAPI([{ text: prompt }]);
+                const report = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                 if (report) {
+                    textElement.value = report;
+                } else {
+                    let errorMessage = "No se pudo generar el informe.";
+                     if(result.promptFeedback && result.promptFeedback.blockReason){
+                        errorMessage += ` Razón: ${result.promptFeedback.blockReason}`;
+                    }
+                    textElement.value = errorMessage;
+                    console.error("Respuesta inesperada o bloqueada de la API:", result);
+                }
+            } catch (error) {
+                console.error("Error durante la generación del informe:", error);
+                textElement.value = `Error: ${error.message}`;
+            } finally {
+                loader.classList.add('hidden');
+                textElement.classList.remove('hidden');
+                if (textElement.value && !textElement.value.toLowerCase().startsWith("error") && !textElement.value.startsWith("No se pudo")) {
+                    participantsWrapper.classList.remove('hidden');
+                    copyBtn.classList.remove('hidden');
+                    downloadPdfBtn.classList.remove('hidden');
+                }
+            }
+        }
+        
+        async function callGeminiAPI(parts) {
+            const apiKey = "AIzaSyAM4LlXOBoJGuUQi3avlnTS_yAWpLXr0QM"; // API key is handled by the environment
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+            const payload = { contents: [{ parts }] };
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                let errorBody = await response.text();
+                try {
+                    const errorJson = JSON.parse(errorBody);
+                    if (errorJson.error && errorJson.error.message) {
+                        errorBody = errorJson.error.message;
+                    }
+                } catch (e) {}
+                throw new Error(`Error de la API: ${response.status} ${response.statusText} - ${errorBody}`);
+            }
+            return response.json();
+        }
+
+        function blobToBase64(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        function copyToClipboard(text, button, originalButtonText) {
+            const buttonSpan = button.querySelector('span');
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            buttonSpan.textContent = '¡Copiado!';
+            setTimeout(() => {
+                buttonSpan.textContent = originalButtonText;
+            }, 2000);
+        }
+
+        async function downloadReportAsPDF(reportText, participantsText, filename) {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+
+            const margin = 20;
+            const lineHeight = 6;
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const textWidth = pageWidth - margin * 2;
+            let y = margin;
+
+            // 1. Add Logo
+            try {
+                const imageUrl = 'https://files.catbox.moe/zovctj.png';
+                const response = await fetch(imageUrl);
+                const blob = await response.blob();
+                const logoBase64 = await new Promise(resolve => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.readAsDataURL(blob);
+                });
+                doc.addImage(logoBase64, 'PNG', margin, 15, 25, 25);
+            } catch (e) {
+                console.error("Could not load logo for PDF", e);
+            }
+            
+            // 2. Add Date
+            const today = new Date().toLocaleDateString('es-CL');
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(10);
+            doc.text(today, pageWidth - margin, 20, { align: 'right' });
+
+
+            // 3. Add Title
+            y = 50; // Set y position below the logo
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(16);
+            doc.text("Informe de reunión", pageWidth / 2, y, { align: "center" });
+            y += lineHeight * 2.5;
+
+            // 4. Process and Add Body Text
+            const reportLines = reportText.split('\n');
+
+            reportLines.forEach(line => {
+                if (y > doc.internal.pageSize.getHeight() - margin) {
+                    doc.addPage();
+                    y = margin;
+                }
+                
+                // Check for bolded titles
+                if (line.startsWith('**') && line.endsWith('**')) {
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(11);
+                    const title = line.substring(2, line.length - 2).trim();
+                    const splitTitle = doc.splitTextToSize(title, textWidth);
+                    doc.text(splitTitle, margin, y);
+                    y += (splitTitle.length * lineHeight);
+                } else {
+                    doc.setFont("helvetica", "normal");
+                    doc.setFontSize(10);
+                    const splitLine = doc.splitTextToSize(line, textWidth);
+                    doc.text(splitLine, margin, y);
+                    y += (splitLine.length * lineHeight);
+                }
+                y += lineHeight * 0.3; 
+            });
+
+
+            // 5. Add Signature Section
+            const names = participantsText.trim() ? participantsText.trim().split('\n') : [];
+            const signatureSectionHeight = names.length > 0 ? names.length * 20 + 20 : 60;
+            if (y + signatureSectionHeight > doc.internal.pageSize.getHeight() - margin) {
+                doc.addPage();
+                y = margin;
+            }
+
+            y += lineHeight * 3; 
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(12);
+            doc.text("Firmas", pageWidth / 2, y, { align: "center" });
+            y += lineHeight * 2;
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(10);
+
+            if (names.length > 0) {
+                names.forEach(name => {
+                    if (name.trim()) {
+                        doc.text("_________________________ ", pageWidth / 2, y, { align: "center" });
+                        doc.text(name.trim(), pageWidth / 2, y + 5, { align: "center" });
+                        y += 20;
+                    }
+                });
+            } else {
+                for (let i = 0; i < 2; i++) {
+                    doc.text("_________________________ ", pageWidth / 2, y, { align: "center" });
+                    doc.text("Nombre y Firma", pageWidth / 2, y + 5, { align: "center" });
+                    y += 20;
+                }
+            }
+
+            doc.save(filename);
+        }
+
+        updateUI('inactive');
+    </script>
+</body>
+</html>
+
+

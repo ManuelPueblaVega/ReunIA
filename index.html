@@ -465,7 +465,7 @@ ${transcription}
         }
         
         async function callGeminiAPI(parts) {
-            const apiKey = "AIzaSyAM4LlXOBoJGuUQi3avlnTS_yAWpLXr0QM"; // API key is handled by the environment
+            const apiKey = ""; // API key is handled by the environment
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
             const payload = { contents: [{ parts }] };
             const response = await fetch(apiUrl, {
